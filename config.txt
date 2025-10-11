@@ -1,0 +1,8 @@
+# config.txt
+
+# Set the size of the timer window
+WindowWidth = 300
+WindowHeight = 100
+
+# Set the font size for the timer text
+FontSize = 38
