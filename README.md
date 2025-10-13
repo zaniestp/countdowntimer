@@ -31,5 +31,5 @@ You may copy the entire folder (Counter) to use.
 
   you may start with a batch file with the following command
 
-  powershell -f "countdown.ps1"
+  powershell -f ".\countdown.ps1"
   
