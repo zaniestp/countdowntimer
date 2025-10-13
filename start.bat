@@ -1,2 +1,2 @@
 echo off
-powershell -f "
+powershell -f ".\countdown.ps1"
