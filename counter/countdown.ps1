@@ -1,29 +1,38 @@
 <#
 .SYNOPSIS
-A reusable countdown timer with a GUI that stays on top of all other windows.
+A reusable, resizable countdown timer with a GUI that stays on top of all other windows.
 
 .DESCRIPTION
 This script launches an input form to set a countdown. After the countdown finishes,
-the script returns to the input form. When the "Exit" button is pressed, a final
-credits window is displayed before the application closes.
+the script returns to the input form. The countdown window can be dynamically resized,
+and the font will adjust automatically. When the "Exit" button is pressed,
+a final credits window is displayed.
 
 .NOTES
 To use:
 1. Save this code as a PowerShell script file (e.g., countdown_timer.ps1).
-2. (Optional) Create a 'config.txt' file in the same directory to customize the countdown window's appearance.
-3. Run the script: .\countdown_timer.ps1
-4. Use the input form to set the time and click "Start", or click "Exit" to close.
+2. (Optional) Create a 'config.txt' file for window appearance.
+3. (Optional) Place a 'default.wav' file in the same folder for a custom sound.
+4. (Optional) Place a 'favicon.ico' file in the same folder for a custom icon.
+5. Run the script: .\countdown_timer.ps1
 #>
 
 #-----------------------------------------------------------------------
 # CONFIGURATION - Change these values to customize the timer
 #-----------------------------------------------------------------------
 
-# Set the path to the sound file to play when the timer ends.
-$soundFile = "C:\Windows\Media\Alarm02.wav"
-
 # Set the path to the icon file (.ico) for the window.
-$iconFile = ".\favicon.ico" # Example path, change as needed
+# Made icon path relative to the script for portability
+$iconFile = Join-Path $PSScriptRoot "favicon.ico"
+
+# --- Sound File Logic ---
+$defaultSoundFile = Join-Path $PSScriptRoot "default.wav"
+if (Test-Path $defaultSoundFile) {
+    $soundFile = $defaultSoundFile
+}
+else {
+    $soundFile = "C:\Windows\Media\Alarm02.wav"
+}
 
 #-----------------------------------------------------------------------
 # SCRIPT LOGIC - No need to edit below this line
@@ -49,7 +58,7 @@ while (-not $script:exitScript) {
     #-------------------------------------------------------------------
     $inputForm = New-Object System.Windows.Forms.Form
     $inputForm.Text = "Set Timer"
-    $inputForm.Size = New-Object System.Drawing.Size(300, 200) # Resized for 3 buttons
+    $inputForm.Size = New-Object System.Drawing.Size(300, 200)
     $inputForm.StartPosition = 'CenterScreen'
     $inputForm.FormBorderStyle = 'FixedDialog'
     $inputForm.MaximizeBox = $false
@@ -105,15 +114,18 @@ while (-not $script:exitScript) {
         $isSecondsValid = [int]::TryParse($secondsTextBox.Text, [ref]$parsedSeconds)
 
         if (-not $isMinutesValid -or -not $isSecondsValid) {
-            [System.Windows.Forms.MessageBox]::Show("Please enter valid whole numbers for minutes and seconds.", "Invalid Input", "OK", "Error")
+            # Parent message box to the form
+            [System.Windows.Forms.MessageBox]::Show($inputForm, "Please enter valid whole numbers for minutes and seconds.", "Invalid Input", "OK", "Error")
             return
         }
         if ($parsedMinutes -lt 0 -or $parsedSeconds -lt 0 -or $parsedSeconds -gt 59) {
-            [System.Windows.Forms.MessageBox]::Show("Minutes must be 0 or greater.`nSeconds must be between 0 and 59.", "Invalid Range", "OK", "Error")
+            # Parent message box to the form
+            [System.Windows.Forms.MessageBox]::Show($inputForm, "Minutes must be 0 or greater.`nSeconds must be between 0 and 59.", "Invalid Range", "OK", "Error")
             return
         }
         if (($parsedMinutes + $parsedSeconds) -le 0) {
-            [System.Windows.Forms.MessageBox]::Show("Total time must be greater than zero.", "Invalid Time", "OK", "Error")
+            # Parent message box to the form
+            [System.Windows.Forms.MessageBox]::Show($inputForm, "Total time must be greater than zero.", "Invalid Time", "OK", "Error")
             return
         }
         
@@ -130,9 +142,7 @@ while (-not $script:exitScript) {
         $soundCheckBox.Checked = $true
     })
 
-    # --- MODIFIED EXIT BUTTON HANDLER ---
     $exitButton.Add_Click({
-        # First, show the credits window
         $creditsForm = New-Object System.Windows.Forms.Form
         $creditsForm.Text = "Credits"
         $creditsForm.Size = New-Object System.Drawing.Size(400, 200)
@@ -165,16 +175,21 @@ while (-not $script:exitScript) {
         $creditsForm.Controls.AddRange(@($creditsLabel, $closeCreditsButton))
         $creditsForm.ShowDialog() | Out-Null
         
-        # Clean up credits resources
         $creditsForm.Dispose()
         $autoCloseTimer.Dispose()
 
-        # After the credits window is closed, set the flag to terminate the script
         $script:exitScript = $true
         $inputForm.Close()
     })
 
     $inputForm.Controls.AddRange(@($minutesLabel, $minutesTextBox, $secondsLabel, $secondsTextBox, $soundCheckBox, $startButton, $resetButton, $exitButton))
+    
+    # Add Icon to Input Form as well
+    if (Test-Path $iconFile) {
+        try { $inputForm.Icon = [System.Drawing.Icon]::new($iconFile) }
+        catch { Write-Warning "Failed to load icon: $iconFile." }
+    }
+    
     $inputForm.ShowDialog() | Out-Null
     
     $inputForm.Dispose()
@@ -195,17 +210,18 @@ while (-not $script:exitScript) {
             catch { Write-Warning "Error reading config.txt." }
         }
 
-        $totalSeconds = ($Minutes * 60) + $Seconds
-        $playSound = if ($PlaySoundChecked) { 'Y' } else { 'N' }
+        # FIX: Initialize $script:totalSeconds in the correct scope
+        $script:totalSeconds = ($Minutes * 60) + $Seconds
 
         $form = New-Object System.Windows.Forms.Form
         $form.Text = "Countdown"
         $form.Size = New-Object System.Drawing.Size($settings.WindowWidth, $settings.WindowHeight)
         $form.StartPosition = 'CenterScreen'
-        $form.FormBorderStyle = 'FixedSingle'
-        $form.MaximizeBox = $false
+        $form.FormBorderStyle = 'Sizable'
+        $form.MaximizeBox = $true
         $form.MinimizeBox = $true
         $form.Topmost = $true
+        $form.MinimumSize = New-Object System.Drawing.Size(100, 60) # Set a minimum size
 
         if (Test-Path $iconFile) {
             try { $form.Icon = [System.Drawing.Icon]::new($iconFile) }
@@ -218,6 +234,27 @@ while (-not $script:exitScript) {
         $label.TextAlign = 'MiddleCenter'
         $form.Controls.Add($label)
 
+        # <--- FIX: Define the resize logic as a separate function --->
+        function Update-FontSize {
+            # Simple heuristic: size based on the smaller dimension (width or height)
+            $newWidth = $form.ClientSize.Width / 4.5 # Based on 4-5 chars "00:00"
+            $newHeight = $form.ClientSize.Height / 1.2
+            
+            # Use the smaller of the two calculated sizes, with a minimum size of 8
+            $newSize = [Math]::Max(8, [Math]::Min($newWidth, $newHeight))
+            
+            # Only create a new font object if the size actually changes (for performance)
+            if ($label.Font.Size -ne [int]$newSize) {
+                $label.Font.Dispose() # Dispose of the old font object
+                $label.Font = New-Object System.Drawing.Font("Segoe UI", $newSize, [System.Drawing.FontStyle]::Bold)
+            }
+        }
+
+        # ENHANCEMENT: Add Resize event to dynamically change font size
+        $form.Add_Resize({
+            Update-FontSize # Call the new function
+        })
+        
         function Update-LabelText {
             param($secondsLeft)
             $minutes = [math]::Floor($secondsLeft / 60)
@@ -225,7 +262,8 @@ while (-not $script:exitScript) {
             $label.Text = "{0:00}:{1:00}" -f $minutes, $seconds
         }
 
-        Update-LabelText -secondsLeft $totalSeconds
+        # FIX: Update label using the script-scoped variable
+        Update-LabelText -secondsLeft $script:totalSeconds
 
         $timer = New-Object System.Windows.Forms.Timer
         $timer.Interval = 1000
@@ -233,13 +271,20 @@ while (-not $script:exitScript) {
             $script:totalSeconds--
             if ($script:totalSeconds -lt 0) {
                 $timer.Stop()
-                if ($playSound -eq 'Y') {
+                
+                # ENHANCEMENT: Check the boolean $PlaySoundChecked directly
+                if ($script:PlaySoundChecked) {
                     try {
                         if (Test-Path $soundFile) {
                             $soundPlayer = New-Object System.Media.SoundPlayer($soundFile)
                             $soundPlayer.PlaySync()
-                        } else { [System.Media.SystemSounds]::Beep.Play() }
-                    } catch { [System.Media.SystemSounds]::Beep.Play() }
+                            $soundPlayer.Dispose() # Dispose of sound player
+                        } else { 
+                            [System.Media.SystemSounds]::Beep.Play() 
+                        }
+                    } catch { 
+                        [System.Media.SystemSounds]::Beep.Play() 
+                    }
                 }
                 $form.Close()
             } else {
@@ -247,7 +292,18 @@ while (-not $script:exitScript) {
             }
         })
 
-        $form.Add_Shown({ $timer.Start() })
+        $form.Add_Shown({ 
+            $form.Activate() # Ensure form gets focus
+            $timer.Start() 
+            
+            # <--- FIX: Call the new function instead of the protected method --->
+            Update-FontSize
+        })
+        
+        # Clean up font resource on close
+        $form.Add_FormClosed({
+            $label.Font.Dispose()
+        })
 
         if (-not ("Win32.WindowManager" -as [type])) {
             Add-Type -TypeDefinition @"
@@ -258,8 +314,10 @@ while (-not $script:exitScript) {
 "@
         }
         $consoleWindowHandle = (Get-Process -Id $PID).MainWindowHandle
+        
+        # <--- FIX: Corrected typo from IntZPtr to IntPtr --->
         if ($consoleWindowHandle -ne [System.IntPtr]::Zero) {
-            [Win32.WindowManager]::ShowWindow($consoleWindowHandle, 6)
+            [Win32.WindowManager]::ShowWindow($consoleWindowHandle, 6) # 6 = SW_MINIMIZE
         }
         
         $form.ShowDialog() | Out-Null
@@ -267,6 +325,7 @@ while (-not $script:exitScript) {
         $form.Dispose()
         $timer.Dispose()
     } else {
+        # User closed the input form or clicked Exit, so we break the main loop
         break
     }
 } # End of main while loop
